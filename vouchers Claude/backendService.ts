@@ -1,13 +1,14 @@
- /** 
+/** 
  * This is the code to connect to the taxi service API provided seprately.
  * 
  * The following routes are supported:
+ *  orderVoucher - POST /vouchers
  *  getBookingSlots - GET /bookingSlots
  *  makeBooking - POST /makeBooking
  *  checkUserType - GET /userType
  *  getBooking - POST /bookings/search
  *  searchVouchers - POST /vouchers/search
- * redeemVoucher - POST /vouchers/redeem
+ *  redeemVoucher - POST /vouchers/redeem
  * 
  **/
 
@@ -21,24 +22,25 @@ const apibase = "http://192.168.4.39:3001/"; //Home
 //change to server address once installed on a separat server
 
 
-
 /**
  * A helper function to parse gift Vouchers from a JSON object.
- * Convert data to a list of gift Vouchers by parsing the string date into Date objects.
- * 
- * @param permits returns a list of pased Vouchers.
+ * Converts raw API response data into a list of giftVoucher instances.
+ *
+ * @param vouchers  raw voucher data from the API response
+ * @returns         a list of parsed giftVoucher instances
  */
 function parseVoucher(vouchers: any): giftVoucher[] {
-  const result = vouchers.map((voucher:any) => {
-    const gv = new giftVoucher (
+  const result = vouchers.map((voucher: any) => {
+    const gv = new giftVoucher(
       voucher.title,
       voucher.firstName,
-      voucher.lastName, 
+      voucher.lastName,
       voucher.phoneNumber,
       voucher.email,
       voucher.value,
-      voucher.date, 
-      voucher.voucherNumber);
+      voucher.date,
+      voucher.voucherNumber
+    );
     return gv;
   });
 
@@ -46,13 +48,16 @@ function parseVoucher(vouchers: any): giftVoucher[] {
 }
 
 /**
- * Checks the JSON response for errors and handles them
+ * Checks the JSON response for errors and handles them.
+ * Throws the server's error message string if the status is not "success",
+ * so that callers receive the specific reason for failure.
  *
- * @param  response  the JSON object recived from the service
- * @return processes response
+ * @param  response  the JSON object received from the service
+ * @returns          the response data if successful
+ * @throws           the server's error message string if status != "success"
  */
-function checkResponse(response:any):any {
-  if (response.status!="success") {
+function checkResponse(response: any): any {
+  if (response.status != "success") {
     throw(response.message);
   }
   else if (response.data) {
@@ -60,6 +65,74 @@ function checkResponse(response:any):any {
   }
   else {
     return response;
+  }
+}
+
+/**
+ * Orders a voucher by POSTing customer details and the desired value to the backend.
+ * On success, the backend generates a voucher number and purchase date, emails the
+ * voucher to the customer, and returns the fully populated voucher record.
+ * On failure, the server's error message is rethrown so the caller can display it.
+ *
+ * @param title         the customer's title (e.g. Mr, Mrs, Dr)
+ * @param firstName     the customer's first name
+ * @param lastName      the customer's last name
+ * @param phoneNumber   the customer's contact phone number
+ * @param email         the customer's email address
+ * @param value         the monetary value of the voucher (£)
+ * @returns             a list containing the newly created giftVoucher
+ * @throws              the server's error message string if the purchase fails
+ */
+export async function orderVoucher(
+  title: string,
+  firstName: string,
+  lastName: string,
+  phoneNumber: string,
+  email: string,
+  value: number
+): Promise<giftVoucher[]> {
+
+  console.log("Sending orderVoucher request:", {
+    title,
+    firstName,
+    lastName,
+    phoneNumber,
+    email,
+    value,
+  });
+
+  try {
+    const response = await fetch(apibase + "vouchers", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        firstName,
+        lastName,
+        phoneNumber,
+        email,
+        value,
+      }),
+    });
+
+    const json = await response.json();
+    console.log("orderVoucher raw response:", json);
+
+    // checkResponse throws the server's error message if status != "success"
+    const data = checkResponse(json);
+
+    const voucherParsed = parseVoucher(data);
+    console.log("orderVoucher parsed result:", JSON.stringify(voucherParsed, null, 2));
+
+    return voucherParsed;
+
+  } catch (error: any) {
+    // Rethrow so the calling code receives the specific error message
+    // (either from checkResponse or a network-level failure)
+    console.error("orderVoucher failed:", error);
+    throw error;
   }
 }
 
@@ -256,7 +329,6 @@ export async function searchBookings(
 
   const url = `${apibase}bookings/search`;
 
-  // ✅ BUILD BODY (no ISO conversion!)
   const body: any = {
     filter
   };
@@ -286,6 +358,7 @@ export async function searchBookings(
     return [];
   }
 }
+
 /**
  * Retrieves voucher(s) based on provided filters
  * 
@@ -373,9 +446,7 @@ export async function redeemVoucher(
       }),
     });
 
-  
-   const text = await response.text();
-    // try to parse it as JSON, if it fails log the error and show an alert, then return null
+    const text = await response.text();
     let json;
     try {
       json = JSON.parse(text);
@@ -384,7 +455,7 @@ export async function redeemVoucher(
       alert("Server did not return valid JSON");
       return null;
     }
-   const data = checkResponse(json);
+    const data = checkResponse(json);
 
     console.log("Redeem result:", data);
 
