@@ -21,6 +21,21 @@ const apibase = "http://192.168.4.39:3001/"; //Home
 //const apibase = "http://192.168.1.23:3001/"; // Oma
 //change to server address once installed on a separat server
 
+/**
+ * A helper function to format dates for the booking backend.
+ * Converts a date string from "YYYY-MM-DD" to "DD/MM/YYYY" format if it contains dashes.
+ * 
+ * @param dateValue the date string to format
+ * @returns the formatted date string
+ */
+function formatDateForBookingBackend(dateValue: string): string {
+  if (dateValue.includes('-')) {
+    const [year, month, day] = dateValue.split('-');
+    return `${day}/${month}/${year}`;
+  }
+
+  return dateValue;
+}
 
 /**
  * A helper function to parse gift Vouchers from a JSON object.
@@ -157,6 +172,174 @@ export async function searchBookings(
     console.error("Fetch failed:", error);
     alert("Error retrieving booking data: " + (error.message || String(error)));
     return [];
+  }
+}
+
+/**
+ * Retrieves available booking slots for a given date and number of guests.
+ *
+ * @param date           the selected date in YYYY-MM-DD format
+ * @param numberOfGuests number of guests for the booking
+ * @returns              object containing request status, slots, and optional message
+ */
+export async function getBookingSlots(
+  date: string,
+  numberOfGuests: number
+): Promise<{ success: boolean; slots: string[]; message?: string }> {
+  const formattedDate = formatDateForBookingBackend(date);
+
+  console.log('Requesting booking slots with:', {
+    date,
+    formattedDate,
+    numberOfGuests,
+  });
+
+  const url = `${apibase}bookingSlots?date=${encodeURIComponent(formattedDate)}&numberOfGuests=${encodeURIComponent(
+    String(numberOfGuests)
+  )}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const json = await response.json();
+    console.log('Booking slots raw response:', json);
+
+    if (json.status === 'success') {
+      const slots = Array.isArray(json.data) ? json.data : [];
+      if (!Array.isArray(json.data)) {
+        console.warn('Booking slots response contained unexpected data:', json.data);
+      }
+      console.log('Booking slots retrieved:', slots);
+      return { success: true, slots, message: json.message || 'Booking slots retrieved successfully.' };
+    }
+
+    console.warn('Booking slots request failed:', json.message);
+    return { success: false, slots: [], message: json.message || 'No booking slots available.' };
+  } catch (error: any) {
+    console.error('Fetch failed for booking slots:', error);
+    alert('Error retrieving booking slots: ' + (error.message || String(error)));
+    return { success: false, slots: [], message: 'Unable to retrieve booking slots.' };
+  }
+}
+
+/**
+ * Creates a new booking via POST request to /makeBooking endpoint.
+ *
+ * @param title        customer title
+ * @param firstName    customer first name
+ * @param lastName     customer last name
+ * @param phoneNumber  customer phone number
+ * @param email        customer email address
+ * @param numberOfGuests number of guests
+ * @param date         booking date in DD/MM/YYYY format
+ * @param time         booking time slot
+ * @param comment      optional booking comments
+ * @returns            object containing success status and message
+ */
+export async function makeBooking(
+  title: string,
+  firstName: string,
+  lastName: string,
+  phoneNumber: string,
+  email: string,
+  numberOfGuests: number,
+  date: string,
+  time: string,
+  comment: string
+): Promise<{ success: boolean; message: string; booking?: booking }> {
+  const formattedDate = formatDateForBookingBackend(date);
+
+  console.log('Submitting booking with:', {
+    title,
+    firstName,
+    lastName,
+    phoneNumber,
+    email,
+    numberOfGuests,
+    date,
+    formattedDate,
+    time,
+    comment,
+  });
+
+  const url = `${apibase}makeBooking`;
+  const bookingPayload = {
+    title,
+    firstName,
+    lastName,
+    phoneNumber,
+    email,
+    numberOfGuests,
+    date: formattedDate,
+    time,
+    comment,
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bookingPayload),
+    });
+
+    const json = await response.json();
+    console.log('Booking response:', json);
+
+    if (json.status === 'success') {
+      // Backend may return the booking as an object or an array with one element
+      const data = Array.isArray(json.data) ? json.data[0] : json.data;
+
+      // Map returned data into the frontend `booking` class
+      const bookingData = {
+        title: data?.title || title,
+        firstName: data?.firstName || firstName,
+        lastName: data?.lastName || lastName,
+        phoneNumber: data?.phoneNumber || phoneNumber,
+        email: data?.email || email,
+        numberOfGuests: data?.numberOfGuests ?? numberOfGuests,
+        dateOfBooking: data?.dateOfBooking || data?.date || formattedDate,
+        time: data?.time || time,
+        comment: data?.comment || comment || '',
+        bookingNumber: data?.bookingNumber || data?.booking_number || 'N/A',
+        dateBookingWasMade: data?.dateBookingWasMade || data?.dateMade || new Date().toISOString(),
+      };
+
+      const bookingObj = new booking(
+        bookingData.title,
+        bookingData.firstName,
+        bookingData.lastName,
+        bookingData.phoneNumber,
+        bookingData.email,
+        bookingData.numberOfGuests,
+        bookingData.dateOfBooking,
+        bookingData.time,
+        bookingData.comment,
+        bookingData.bookingNumber,
+        bookingData.dateBookingWasMade
+      );
+
+      console.log('Mapped booking object:', bookingObj);
+
+      return {
+        success: true,
+        message: json.message || 'Booking created successfully.',
+        booking: bookingObj,
+      };
+    }
+
+    console.warn('Booking creation failed:', json.message);
+    return { success: false, message: json.message || 'Failed to create booking.' };
+  } catch (error: any) {
+    console.error('Fetch failed for booking creation:', error);
+    alert('Error creating booking: ' + (error.message || String(error)));
+    return { success: false, message: 'Unable to create booking. Please try again later.' };
   }
 }
 
